@@ -7,7 +7,7 @@
 # 1 "/opt/microchip/xc8/v2.45/pic/include/language_support.h" 1 3
 # 2 "<built-in>" 2
 # 1 "transmitter_main.c" 2
-# 13 "transmitter_main.c"
+# 15 "transmitter_main.c"
 #pragma config OSC = IRC
 #pragma config FCMEN = ON
 #pragma config IESO = ON
@@ -5301,7 +5301,7 @@ __attribute__((__unsupported__("The READTIMER" "3" "() macro is not available wi
 unsigned char __t1rd16on(void);
 unsigned char __t3rd16on(void);
 # 34 "/opt/microchip/xc8/v2.45/pic/include/xc.h" 2 3
-# 74 "transmitter_main.c" 2
+# 76 "transmitter_main.c" 2
 # 1 "/opt/microchip/xc8/v2.45/pic/include/c99/stdio.h" 1 3
 # 24 "/opt/microchip/xc8/v2.45/pic/include/c99/stdio.h" 3
 # 1 "/opt/microchip/xc8/v2.45/pic/include/c99/bits/alltypes.h" 1 3
@@ -5454,40 +5454,60 @@ char *ctermid(char *);
 
 
 char *tempnam(const char *, const char *);
-# 75 "transmitter_main.c" 2
+# 77 "transmitter_main.c" 2
 
 
 # 1 "./../PIC18_spi.X/spi.h" 1
-# 11 "./../PIC18_spi.X/spi.h"
+# 13 "./../PIC18_spi.X/spi.h"
 void spi_master_init();
 void spi_slave_init();
-# 78 "transmitter_main.c" 2
+
+struct spi_transmission
+{
+    uint8_t beginning_flag;
+    uint8_t sending_flag;
+    uint8_t end_flag;
+};
+# 80 "transmitter_main.c" 2
 # 1 "./../PIC18_adc.X/adc.h" 1
 # 11 "./../PIC18_adc.X/adc.h"
 void adc_init();
-# 79 "transmitter_main.c" 2
+
+struct adc_data
+{
+    int full_result;
+    uint8_t res_hi;
+    uint8_t res_lo;
+    uint8_t full_result_flag;
+    uint8_t lob_flag;
+    uint8_t hib_flag;
+};
+# 81 "transmitter_main.c" 2
+# 1 "./../PIC18_xl5.X/xl5.h" 1
+# 11 "./../PIC18_xl5.X/xl5.h"
+struct xl5_data
+{
+    uint8_t drive_dir;
+    uint8_t drive_dir_flag;
+};
+
+void init_XL5();
+void throttle_test();
+# 82 "transmitter_main.c" 2
 
 void __attribute__((picinterrupt(("__high_priority")))) h_isr( void );
 void message_transmitted();
 void delay(int);
 
-uint8_t adc_res_hi = 0;
-uint8_t adc_res_lo = 0;
-uint8_t drive_dir = 0;
-
-uint8_t message_start = 0b11111111;
-
-uint8_t adc_lob_flag = 0;
-uint8_t adc_hib_flag = 0;
-uint8_t drive_dir_flag = 0;
-uint8_t message_start_flag = 0;
-
-uint8_t send_message = 1;
-
-
+struct adc_data throttle;
+struct xl5_data xl5_1;
+struct spi_transmission message;
 
 int main( int argc, char** argv )
 {
+    message.beginning_flag = 0;
+    message.sending_flag = 1;
+
 
     IRCF0 = 0;
     IRCF1 = 1;
@@ -5502,37 +5522,36 @@ int main( int argc, char** argv )
 
     while( 1 )
     {
-        drive_dir = RD0;
-        if ( send_message )
+        xl5_1.drive_dir = RD0;
+        if ( message.sending_flag )
         {
             delay(50);
             if( SSPIF )
 
             {
-                if ( !message_start_flag )
+                if ( !message.beginning_flag )
                 {
-                    SSPBUF = message_start;
-                    message_start_flag = 1;
+                    SSPBUF = 0b11111111;
+                    message.beginning_flag = 1;
                     SSPIF = 0;
                 }
-                else if ( !adc_lob_flag )
+                else if ( !throttle.lob_flag )
                 {
-                    SSPBUF = adc_res_lo;
-                    adc_lob_flag = 1;
+                    SSPBUF = throttle.res_lo;
+                    throttle.lob_flag = 1;
                     SSPIF = 0;
                 }
-                else if ( !adc_hib_flag )
+                else if ( !throttle.hib_flag )
                 {
-                    SSPBUF = adc_res_hi;
-                    adc_hib_flag = 1;
+                    SSPBUF = throttle.res_hi;
+                    throttle.hib_flag = 1;
                     SSPIF = 0;
                 }
-                else if ( !drive_dir_flag )
+                else if ( !xl5_1.drive_dir_flag )
                 {
-                    SSPBUF = drive_dir;
-                    drive_dir_flag = 1;
+                    SSPBUF = xl5_1.drive_dir;
+                    xl5_1.drive_dir_flag = 1;
                     SSPIF = 0;
-
                     message_transmitted();
                     GODONE = 1;
                     delay(1000);
@@ -5548,12 +5567,12 @@ void __attribute__((picinterrupt(("__high_priority")))) h_isr( void )
 {
     if ( ADIE && ADIF )
     {
-        send_message = 1;
+        message.sending_flag = 1;
 
-        adc_res_hi = ADRESH;
-        adc_res_lo = ADRESL;
-        adc_lob_flag = 0;
-        adc_hib_flag = 0;
+        throttle.res_hi = ADRESH;
+        throttle.res_lo = ADRESL;
+        throttle.lob_flag = 0;
+        throttle.hib_flag = 0;
 
         ADIF = 0;
         GODONE = 0;
@@ -5563,9 +5582,8 @@ void __attribute__((picinterrupt(("__high_priority")))) h_isr( void )
 
 void message_transmitted()
 {
-    message_start_flag = 0;
-    drive_dir_flag = 0;
-
+    message.beginning_flag = 0;
+    xl5_1.drive_dir_flag = 0;
 }
 
 void delay(int end)

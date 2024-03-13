@@ -10,10 +10,12 @@
             <make-dep-projects>
                 <make-dep-project>../PIC18_adc.X</make-dep-project>
                 <make-dep-project>../PIC18_spi.X</make-dep-project>
+                <make-dep-project>../PIC18_xl5.X</make-dep-project>
             </make-dep-projects>
             <sourceRootList>
                 <sourceRootElem>../spi.X</sourceRootElem>
                 <sourceRootElem>../PIC18_adc.X</sourceRootElem>
+                <sourceRootElem>../PIC18_xl5.X</sourceRootElem>
             </sourceRootList>
             <confList>
                 <confElem>

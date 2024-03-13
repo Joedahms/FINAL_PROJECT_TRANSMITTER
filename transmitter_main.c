@@ -5,6 +5,8 @@
  * Created on March 6, 2024, 7:45 PM
  */
 
+// MESSAGE_START is defined in spi.h
+
 // PIC18F4331 Configuration Bit Settings
 
 // 'C' source line config statements
@@ -76,28 +78,21 @@
 
 #include "../PIC18_spi.X/spi.h"
 #include "../PIC18_adc.X/adc.h"
+#include "../PIC18_xl5.X/xl5.h"
 
 void __interrupt( __high_priority ) h_isr( void );
 void message_transmitted();
 void delay(int);
 
-uint8_t adc_res_hi = 0;         // Value of high byte
-uint8_t adc_res_lo = 0;         // Value of low byte
-uint8_t drive_dir = 0;          // Drive direction
-
-uint8_t message_start = 0b11111111;
-
-uint8_t adc_lob_flag = 0;       // Whether ADC low byte has been sent
-uint8_t adc_hib_flag = 0;       // Whether ADC high byte has been sent
-uint8_t drive_dir_flag = 0;     // Whether drive direction has been sent
-uint8_t message_start_flag = 0; // Whether message start has been sent
-
-uint8_t send_message = 1;
-
-
+struct adc_data throttle;       // Struct in PIC18_adc library
+struct xl5_data xl5_1;          // Struct in PIC18_xl5 library
+struct spi_transmission message; // Struct in PIC18_spi library
 
 int main( int argc, char** argv ) 
 {    
+    message.beginning_flag = 0;
+    message.sending_flag = 1;
+    
     // set system clock to 4MHz
     IRCF0 = 0;                 
     IRCF1 = 1;
@@ -112,37 +107,36 @@ int main( int argc, char** argv )
     
     while( 1 )
     {
-        drive_dir = RD0;                // Read drive direction off of RD0
-        if ( send_message )
+        xl5_1.drive_dir = RD0;                // Read drive direction off of RD0
+        if ( message.sending_flag )
         {
             delay(50);
             if( SSPIF )                     // If buffer is empty
             //delay();
             {
-                if ( !message_start_flag )
+                if ( !message.beginning_flag )
                 {
-                    SSPBUF = message_start;
-                    message_start_flag = 1;
+                    SSPBUF = MESSAGE_START;
+                    message.beginning_flag = 1;
                     SSPIF = 0;
                 }
-                else if ( !adc_lob_flag )        // If ADC low byte hasn't been sent yet
+                else if ( !throttle.lob_flag )        // If ADC low byte hasn't been sent yet
                 {
-                    SSPBUF = adc_res_lo;    // Load ADC low byte into buffer
-                    adc_lob_flag = 1;       // ADC low byte has been transmitted
+                    SSPBUF = throttle.res_lo;    // Load ADC low byte into buffer
+                    throttle.lob_flag = 1;       // ADC low byte has been transmitted
                     SSPIF = 0;              // Waiting to transmit
                 }
-                else if ( !adc_hib_flag )
+                else if ( !throttle.hib_flag )
                 {
-                    SSPBUF = adc_res_hi;    // Load ADC high byte into buffer 
-                    adc_hib_flag = 1;       // ADC high byte has been transmitted
+                    SSPBUF = throttle.res_hi;    // Load ADC high byte into buffer 
+                    throttle.hib_flag = 1;       // ADC high byte has been transmitted
                     SSPIF = 0;              // Waiting to transmit
                 }
-                else if ( !drive_dir_flag )
+                else if ( !xl5_1.drive_dir_flag )
                 {
-                    SSPBUF = drive_dir;     // Load drive direction into buffer
-                    drive_dir_flag = 1;     // Drive direction has been transmitted
+                    SSPBUF = xl5_1.drive_dir;     // Load drive direction into buffer
+                    xl5_1.drive_dir_flag = 1;     // Drive direction has been transmitted
                     SSPIF = 0;              // Waiting to transmit
-                    //GODONE = 1;             // Start ADC again
                     message_transmitted();
                     GODONE = 1;             // Start ADC again
                     delay(1000);
@@ -158,12 +152,12 @@ void __interrupt( __high_priority ) h_isr( void )
 {
     if ( ADIE && ADIF )
     {
-        send_message = 1;
+        message.sending_flag = 1;
         
-        adc_res_hi = ADRESH;    // Result high byte
-        adc_res_lo = ADRESL;    // Result low byte
-        adc_lob_flag = 0;       // Low byte has not been transmitted yet
-        adc_hib_flag = 0;       // High byte has not been transmitted yet
+        throttle.res_hi = ADRESH;    // Result high byte
+        throttle.res_lo = ADRESL;    // Result low byte
+        throttle.lob_flag = 0;       // Low byte has not been transmitted yet
+        throttle.hib_flag = 0;       // High byte has not been transmitted yet
         
         ADIF = 0;
         GODONE = 0;             // Stop adc until current reading has been sent out
@@ -173,9 +167,8 @@ void __interrupt( __high_priority ) h_isr( void )
 
 void message_transmitted()
 {
-    message_start_flag = 0;
-    drive_dir_flag = 0;
-    //send_message = 0;
+    message.beginning_flag = 0;
+    xl5_1.drive_dir_flag = 0;
 }
 
 void delay(int end)
